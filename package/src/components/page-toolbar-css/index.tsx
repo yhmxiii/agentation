@@ -24,6 +24,7 @@ import {
   IconEyeAnimated,
   IconPausePlayAnimated,
   IconLayout,
+  IconRectangleSelection,
 } from "../icons";
 import { HelpTooltip } from "../help-tooltip";
 import { ToolbarToggleIcon } from "./toolbar-toggle-icon";
@@ -114,6 +115,28 @@ import { css as annotationMarkerCss } from "./annotation-marker/styles.module.sc
 import { css as checkboxFieldCss } from "./settings-panel/checkbox-field/styles.module.scss";
 import { css as settingsPanelCss } from "./settings-panel/styles.module.scss";
 import { css as switchCss } from "../switch/styles.module.scss";
+
+const TOOLBAR_WIDTH = 377; // Keep in sync with .toolbar in styles.module.scss.
+const AREA_SELECTION_LABEL = "Area selection";
+
+function isAreaSelection(annotation: Pick<Annotation, "element" | "elementPath">) {
+  return annotation.element === AREA_SELECTION_LABEL && annotation.elementPath.startsWith("region at (");
+}
+
+function dragBounds(start: { x: number; y: number }, clientX: number, clientY: number) {
+  return {
+    x: Math.min(start.x, clientX),
+    y: Math.min(start.y, clientY),
+    width: Math.abs(clientX - start.x),
+    height: Math.abs(clientY - start.y),
+  };
+}
+
+function paintDragBounds(node: HTMLDivElement, bounds: ReturnType<typeof dragBounds>) {
+  node.style.transform = `translate(${bounds.x}px, ${bounds.y}px)`;
+  node.style.width = `${bounds.width}px`;
+  node.style.height = `${bounds.height}px`;
+}
 
 const shadowCss = [
   resetCss,
@@ -493,6 +516,7 @@ function PageFeedbackToolbarForRoute({
   const portalWrapperRef = useRef<HTMLDivElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const controlsRef = useRef<HTMLDivElement | null>(null);
+  const rectangleModeButtonRef = useRef<HTMLButtonElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const focusControlsOnOpenRef = useRef(false);
   const focusLauncherOnCloseRef = useRef(false);
@@ -800,11 +824,17 @@ function PageFeedbackToolbarForRoute({
   const [pendingExiting, setPendingExiting] = useState(false);
   const [editExiting, setEditExiting] = useState(false);
 
-  // Multi-select drag state - use refs for all drag visuals to avoid re-renders
+  // Selection drag state - use refs for drag visuals to avoid re-renders.
+  const [isRectangleMode, setIsRectangleMode] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragRectRef = useRef<HTMLDivElement | null>(null);
+  const dragBoundsRef = useRef<ReturnType<typeof dragBounds> | null>(null);
+  const attachDragRect = useCallback((node: HTMLDivElement | null) => {
+    dragRectRef.current = node;
+    if (node && dragBoundsRef.current) paintDragBounds(node, dragBoundsRef.current);
+  }, []);
   const highlightsContainerRef = useRef<HTMLDivElement | null>(null);
   const justFinishedDragRef = useRef(false);
   const lastElementUpdateRef = useRef(0);
@@ -812,6 +842,17 @@ function PageFeedbackToolbarForRoute({
   const prevConnectionStatusRef = useRef<typeof connectionStatus | null>(null);
   const DRAG_THRESHOLD = 8;
   const ELEMENT_UPDATE_THROTTLE = 50; // Faster updates since no React re-renders
+
+  const changeRectangleMode = useCallback((enabled: boolean) => {
+    if (mouseDownPosRef.current) justFinishedDragRef.current = true;
+    mouseDownPosRef.current = null;
+    dragStartRef.current = null;
+    setIsDragging(false);
+    setPendingMultiSelectElements([]);
+    legacyMultiSelectRef.current = false;
+    setHoverInfo(null);
+    setIsRectangleMode(enabled);
+  }, []);
 
   const popupRef = useRef<AnnotationPopupCSSHandle>(null);
   const editPopupRef = useRef<AnnotationPopupCSSHandle>(null);
@@ -1576,10 +1617,11 @@ function PageFeedbackToolbarForRoute({
 
   // Reopening owns the overlay immediately, including during an unfinished exit.
   const openDesignMode = useCallback(() => {
+    if (isRectangleMode) changeRectangleMode(false);
     clearTimeout(designExitTimer.current);
     setDesignOverlayExiting(false);
     setIsDesignMode(true);
-  }, []);
+  }, [isRectangleMode, changeRectangleMode]);
 
   useEffect(() => () => clearTimeout(designExitTimer.current), []);
 
@@ -1754,6 +1796,7 @@ function PageFeedbackToolbarForRoute({
   // Reset state when deactivating
   useEffect(() => {
     if (!isActive) {
+      if (isRectangleMode) changeRectangleMode(false);
       setPendingAnnotation(null);
       setEditingAnnotation(null);
       setEditingTargetElement(null);
@@ -1766,7 +1809,7 @@ function PageFeedbackToolbarForRoute({
         unfreezeAnimations();
       }
     }
-  }, [isActive, isFrozen, unfreezeAnimations]);
+  }, [isActive, isFrozen, unfreezeAnimations, isRectangleMode, changeRectangleMode]);
 
   // Unmount safety — if component is removed while frozen, unfreeze the page
   useEffect(() => {
@@ -1794,7 +1837,7 @@ function PageFeedbackToolbarForRoute({
     // Everything else gets crosshair
     style.textContent = `
       body { cursor: crosshair !important; }
-      body :is(${textElementsSelector}) { cursor: text !important; }
+      body :is(${textElementsSelector}) { cursor: ${isRectangleMode ? "crosshair" : "text"} !important; }
     `;
     document.head.appendChild(style);
 
@@ -1802,7 +1845,7 @@ function PageFeedbackToolbarForRoute({
       const existingStyle = document.getElementById("agentation-cursor");
       if (existingStyle) existingStyle.remove();
     };
-  }, [isActive]);
+  }, [isActive, isRectangleMode]);
 
 
   // Cursor change when hovering a drawing stroke (both draw mode and normal mode)
@@ -1815,7 +1858,7 @@ function PageFeedbackToolbarForRoute({
 
   // Re-evaluate the same point when the deep-selection modifier changes.
   useEffect(() => {
-    if (!isActive || pendingAnnotation || editingAnnotation || isDrawMode || isDesignMode) return;
+    if (!isActive || pendingAnnotation || editingAnnotation || isDrawMode || isDesignMode || isRectangleMode) return;
     let lastMouse: { x: number; y: number } | null = null;
     const evaluateHover = (x: number, y: number, piercing: boolean) => {
       const normalElement = deepElementFromPoint(x, y);
@@ -1861,7 +1904,7 @@ function PageFeedbackToolbarForRoute({
       pageEvents.removeEventListener("mouseleave", clearHover);
       window.removeEventListener("blur", clearHover);
     };
-  }, [isActive, pendingAnnotation, editingAnnotation, isDrawMode, isDesignMode, effectiveReactMode, attributeNames]);
+  }, [isActive, pendingAnnotation, editingAnnotation, isDrawMode, isDesignMode, isRectangleMode, effectiveReactMode, attributeNames]);
 
   // Start editing an annotation (right-click or click on drawing stroke)
   const startEditAnnotation = useCallback((annotation: Annotation, trigger?: HTMLButtonElement) => {
@@ -1901,7 +1944,7 @@ function PageFeedbackToolbarForRoute({
       }
       setEditingTargetElements(elements);
       setEditingTargetElement(null);
-    } else if (annotation.boundingBox) {
+    } else if (annotation.boundingBox && !isAreaSelection(annotation)) {
       // Single element
       const bb = annotation.boundingBox;
       const centerX = bb.x + bb.width / 2;
@@ -1936,6 +1979,10 @@ function PageFeedbackToolbarForRoute({
     if (!isActive || isDrawMode || isDesignMode) return;
 
     const handleClick = (e: MouseEvent) => {
+      // Use composedPath to get actual target inside shadow DOM, falling back to e.target.
+      const target = (e.composedPath()[0] || e.target) as HTMLElement;
+      if (closestCrossingShadow(target, "[data-feedback-toolbar], [data-annotation-popup], [data-annotation-marker]")) return;
+
       if (justFinishedDragRef.current) {
         justFinishedDragRef.current = false;
         e.preventDefault();
@@ -1943,12 +1990,14 @@ function PageFeedbackToolbarForRoute({
         return;
       }
 
-      // Use composedPath to get actual target inside shadow DOM, falling back to e.target
-      const target = (e.composedPath()[0] || e.target) as HTMLElement;
-
-      if (closestCrossingShadow(target, "[data-feedback-toolbar]")) return;
-      if (closestCrossingShadow(target, "[data-annotation-popup]")) return;
-      if (closestCrossingShadow(target, "[data-annotation-marker]")) return;
+      // Rectangle mode owns the gesture, not the underlying page element.
+      if (isRectangleMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (pendingAnnotation && !pendingExiting) popupRef.current?.shake();
+        if (editingAnnotation && !editExiting) editPopupRef.current?.shake();
+        return;
+      }
 
       // Handle modifier-click for multi-element selection
       if (
@@ -2095,6 +2144,7 @@ function PageFeedbackToolbarForRoute({
     isActive,
     isDrawMode,
     isDesignMode,
+    isRectangleMode,
     pendingAnnotation,
     pendingExiting,
     editingAnnotation,
@@ -2139,7 +2189,7 @@ function PageFeedbackToolbarForRoute({
 
   // Multi-select drag - mousedown
   useEffect(() => {
-    if (!isActive || pendingAnnotation || isDrawMode || isDesignMode) return;
+    if (!isActive || pendingAnnotation || isDrawMode || isDesignMode || (isRectangleMode && editingAnnotation)) return;
 
     const handleMouseDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
@@ -2193,6 +2243,7 @@ function PageFeedbackToolbarForRoute({
       ]);
 
       if (
+        !isRectangleMode &&
         !isPrimaryMultiSelectModifierActive(e) &&
         (textTags.has(target.tagName) || target.isContentEditable)
       ) {
@@ -2200,12 +2251,13 @@ function PageFeedbackToolbarForRoute({
       }
 
       e.preventDefault(); // Prevent text selection during drag area annotation
+      if (isRectangleMode) e.stopPropagation();
       mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
     };
 
-    pageEvents.addEventListener("mousedown", handleMouseDown);
-    return () => pageEvents.removeEventListener("mousedown", handleMouseDown);
-  }, [isActive, pendingAnnotation, isDrawMode, isDesignMode]);
+    pageEvents.addEventListener("mousedown", handleMouseDown, isRectangleMode);
+    return () => pageEvents.removeEventListener("mousedown", handleMouseDown, isRectangleMode);
+  }, [isActive, pendingAnnotation, editingAnnotation, isDrawMode, isDesignMode, isRectangleMode]);
 
   // Multi-select drag - mousemove (fully optimized with direct DOM updates)
   useEffect(() => {
@@ -2227,15 +2279,11 @@ function PageFeedbackToolbarForRoute({
 
       if ((isDragging || distance >= thresholdSq) && dragStartRef.current) {
         // Direct DOM update for drag rectangle - no React state
-        if (dragRectRef.current) {
-          const left = Math.min(dragStartRef.current.x, e.clientX);
-          const top = Math.min(dragStartRef.current.y, e.clientY);
-          const width = Math.abs(e.clientX - dragStartRef.current.x);
-          const height = Math.abs(e.clientY - dragStartRef.current.y);
-          dragRectRef.current.style.transform = `translate(${left}px, ${top}px)`;
-          dragRectRef.current.style.width = `${width}px`;
-          dragRectRef.current.style.height = `${height}px`;
-        }
+        const bounds = dragBounds(dragStartRef.current, e.clientX, e.clientY);
+        dragBoundsRef.current = bounds;
+        if (dragRectRef.current) paintDragBounds(dragRectRef.current, bounds);
+
+        if (isRectangleMode) return;
 
         // Throttle element detection (still no React re-renders)
         const now = Date.now();
@@ -2414,9 +2462,9 @@ function PageFeedbackToolbarForRoute({
       }
     };
 
-    pageEvents.addEventListener("mousemove", handleMouseMove, { passive: true });
-    return () => pageEvents.removeEventListener("mousemove", handleMouseMove);
-  }, [isActive, pendingAnnotation, isDragging, DRAG_THRESHOLD]);
+    pageEvents.addEventListener("mousemove", handleMouseMove, { capture: isRectangleMode, passive: !isRectangleMode });
+    return () => pageEvents.removeEventListener("mousemove", handleMouseMove, isRectangleMode);
+  }, [isActive, pendingAnnotation, isDragging, isRectangleMode, DRAG_THRESHOLD]);
 
   // Multi-select drag - mouseup
   useEffect(() => {
@@ -2426,7 +2474,28 @@ function PageFeedbackToolbarForRoute({
       const wasDragging = isDragging;
       const dragStart = dragStartRef.current;
 
-      if (isDragging && dragStart) {
+      if (isRectangleMode && mouseDownPosRef.current) {
+        if (e.button !== 0) return;
+        e.stopPropagation();
+      }
+      if (dragStart && isRectangleMode) {
+        justFinishedDragRef.current = true;
+        const { x: left, y: viewportTop, width, height } = dragBounds(dragStart, e.clientX, e.clientY);
+        const top = viewportTop + window.scrollY;
+        if (width >= 4 && height >= 4) {
+          setPendingExiting(false);
+          setPendingAnnotation({
+            id: Date.now().toString(),
+            x: (e.clientX / window.innerWidth) * 100,
+            y: e.clientY + window.scrollY,
+            clientY: e.clientY,
+            element: AREA_SELECTION_LABEL,
+            elementPath: `region at (${Math.round(left)}, ${Math.round(top)}) (${Math.round(width)}×${Math.round(height)}px)`,
+            boundingBox: { x: left, y: top, width, height },
+            isMultiSelect: true,
+          });
+        }
+      } else if (isDragging && dragStart) {
         justFinishedDragRef.current = true;
 
         // Do final element detection for accurate count
@@ -2565,7 +2634,7 @@ function PageFeedbackToolbarForRoute({
               x,
               y,
               clientY: e.clientY,
-              element: "Area selection",
+              element: AREA_SELECTION_LABEL,
               elementPath: `region at (${Math.round(left)}, ${Math.round(top)})`,
               boundingBox: {
                 x: left,
@@ -2591,11 +2660,12 @@ function PageFeedbackToolbarForRoute({
       }
     };
 
-    pageEvents.addEventListener("mouseup", handleMouseUp);
-    return () => pageEvents.removeEventListener("mouseup", handleMouseUp);
+    pageEvents.addEventListener("mouseup", handleMouseUp, isRectangleMode);
+    return () => pageEvents.removeEventListener("mouseup", handleMouseUp, isRectangleMode);
   }, [
     isActive,
     isDragging,
+    isRectangleMode,
     pendingAnnotation,
     editingAnnotation,
     effectiveReactMode,
@@ -2806,7 +2876,7 @@ function PageFeedbackToolbarForRoute({
       }
       setHoveredTargetElements(elements);
       setHoveredTargetElement(null);
-    } else if (annotation.boundingBox) {
+    } else if (annotation.boundingBox && !isAreaSelection(annotation)) {
       // Single element
       const bb = annotation.boundingBox;
       const centerX = bb.x + bb.width / 2;
@@ -3192,7 +3262,7 @@ function PageFeedbackToolbarForRoute({
   const canSend =
     onSubmit != null || (hasWebhookTarget && !settings.webhooksEnabled);
   // Match the CSS surface widths; MCP status does not control Send visibility.
-  const toolbarContentWidth = isActive ? (canSend ? 337 : 297) : 44;
+  const toolbarContentWidth = isActive ? (canSend ? TOOLBAR_WIDTH : TOOLBAR_WIDTH - 40) : 44;
 
   // Send to webhook
   const sendToWebhook = useCallback(async () => {
@@ -3322,7 +3392,7 @@ function PageFeedbackToolbarForRoute({
 
         // Constrain to viewport
         const padding = 20;
-        const wrapperWidth = 337; // .toolbar wrapper width
+        const wrapperWidth = TOOLBAR_WIDTH;
         const toolbarHeight = 44;
 
         // Content is right-aligned within wrapper via margin-left: auto
@@ -3408,7 +3478,7 @@ function PageFeedbackToolbarForRoute({
 
     const constrainPosition = () => {
       const padding = 20;
-      const wrapperWidth = 337; // .toolbar wrapper width
+      const wrapperWidth = TOOLBAR_WIDTH;
       const toolbarHeight = 44;
 
       let newX = toolbarPosition.x;
@@ -3492,6 +3562,11 @@ function PageFeedbackToolbarForRoute({
         }
         if (pendingAnnotation || editingAnnotation) {
           // Let popup handle
+        } else if (isRectangleMode) {
+          e.preventDefault();
+          changeRectangleMode(false);
+          rectangleModeButtonRef.current?.focus({ preventScroll: true });
+          return;
         } else if (isActive) {
           hideTooltipsUntilMouseLeave();
           deactivate();
@@ -3593,6 +3668,8 @@ function PageFeedbackToolbarForRoute({
     isActive,
     isDrawMode,
     isDesignMode,
+    isRectangleMode,
+    changeRectangleMode,
     activeDesignComponent,
     designPlacements,
     rearrangeState,
@@ -3775,6 +3852,28 @@ function PageFeedbackToolbarForRoute({
                   </span>
                 </div>
                 */}
+
+                <div className={styles.buttonWrapper}>
+                  <button
+                    ref={rectangleModeButtonRef}
+                    className={styles.controlButton}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      hideTooltipsUntilMouseLeave();
+                      changeRectangleMode(!isRectangleMode);
+                    }}
+                    disabled={isDesignMode || isDrawMode || !!pendingAnnotation || !!editingAnnotation}
+                    data-active={isRectangleMode}
+                    aria-label="Rectangle mode"
+                    aria-pressed={isRectangleMode}
+                    tabIndex={controlTabIndex}
+                  >
+                    <IconRectangleSelection size={21} />
+                  </button>
+                  <span className={styles.buttonTooltip}>
+                    {isRectangleMode ? "Drag to select a rectangle" : "Rectangle mode"}
+                  </span>
+                </div>
 
                 <div className={styles.buttonWrapper}>
                   <button
@@ -4624,7 +4723,7 @@ function PageFeedbackToolbarForRoute({
                           placeholder={
                             typeof copyFormat === "object" && pendingAnnotation.attributes?.[copyFormat.attribute]
                               ? "Add a note (optional)"
-                              : pendingAnnotation.element === "Area selection"
+                              : isAreaSelection(pendingAnnotation)
                               ? "What should change in this area?"
                               : pendingAnnotation.isMultiSelect
                                 ? "Feedback for this group of elements..."
@@ -4755,7 +4854,7 @@ function PageFeedbackToolbarForRoute({
               {/* Drag selection - all visuals use refs for smooth 60fps */}
               {isDragging && (
                 <>
-                  <div ref={dragRectRef} className={styles.dragSelection} />
+                  <div ref={attachDragRect} className={styles.dragSelection} />
                   <div
                     ref={highlightsContainerRef}
                     className={styles.highlightsContainer}

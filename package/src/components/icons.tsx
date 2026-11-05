@@ -1042,6 +1042,14 @@ export const AnimatedBunny = ({
   </svg>
 );
 
+export const IconRectangleSelection = ({ size = 24 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <rect x="3.75" y="5.25" width="16.5" height="13.5" rx="2"
+      stroke="currentColor" strokeWidth="1.5" strokeDasharray="2.5 2"
+      strokeLinecap="round" />
+  </svg>
+);
+
 // Layout / grid icon for layout mode
 export const IconLayout = ({ size = 24 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none">

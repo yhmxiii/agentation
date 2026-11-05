@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { PageFeedbackToolbarCSS } from "./index";
 import { StrictMode } from "react";
+import { generateOutput } from "../../utils/generate-output";
 
 const originalPoint = document.elementFromPoint;
 const originalStack = document.elementsFromPoint;
@@ -36,6 +37,85 @@ beforeEach(() => {
 afterEach(() => {
   cleanup(); document.elementFromPoint = originalPoint; document.elementsFromPoint = originalStack;
   vi.unstubAllGlobals(); vi.restoreAllMocks();
+});
+
+describe('rectangle mode', () => {
+  const toggle = () => within(root()).getByRole('button', { name: 'Rectangle mode' });
+
+  it('uses the existing comment popup and saves just the reverse-drag rectangle over elements', async () => {
+    const { alpha, beta, onAnnotationAdd, onHostClick } = fixture();
+    activate();
+    const hitTest = vi.fn(() => [alpha, beta]);
+    const onHostMouseDown = vi.fn((event: MouseEvent) => event.stopPropagation());
+    beta.addEventListener('mousedown', onHostMouseDown);
+    document.elementsFromPoint = hitTest;
+    fireEvent.click(toggle());
+    expect(toggle().getAttribute('aria-pressed')).toBe('true');
+    vi.stubGlobal('scrollY', 240);
+    fireEvent.scroll(document);
+    fireEvent.mouseDown(beta, { clientX: 145, clientY: 36, ctrlKey: true });
+    fireEvent.mouseMove(alpha, { clientX: 35, clientY: 14, ctrlKey: true });
+    expect(root().querySelector<HTMLElement>('[class*="dragSelection"]')?.style.width).toBe('110px');
+    fireEvent.mouseMove(alpha, { clientX: 30, clientY: 12, ctrlKey: true });
+    expect(hitTest).not.toHaveBeenCalled();
+    expect(onHostMouseDown).not.toHaveBeenCalled();
+    expect(root().querySelector('[class*="selectedElementHighlight"]')).toBeNull();
+    fireEvent.mouseUp(alpha, { clientX: 30, clientY: 12, ctrlKey: true });
+    // A drag across elements may not generate a click; Add must still work immediately.
+    expect(onHostClick).not.toHaveBeenCalled();
+    expect(popup()?.textContent).toContain('Area selection');
+    const input = within(root()).getByPlaceholderText('What should change in this area?');
+    fireEvent.change(input, { target: { value: 'Check spacing in this rectangle' } });
+    fireEvent.click(within(root()).getByRole('button', { name: 'Add' }));
+    expect(onAnnotationAdd).toHaveBeenCalledOnce();
+    const annotation = onAnnotationAdd.mock.calls[0][0];
+    expect(annotation).toMatchObject({
+      element: 'Area selection',
+      elementPath: 'region at (30, 252) (115×24px)',
+      boundingBox: { x: 30, y: 252, width: 115, height: 24 },
+      comment: 'Check spacing in this rectangle',
+    });
+    expect(generateOutput([annotation], '/')).toContain('**Location:** region at (30, 252) (115×24px)');
+    for (const key of ['elementBoundingBoxes', 'selectedText', 'nearbyText', 'cssClasses', 'fullPath', 'attributes', 'sourceFile']) {
+      expect(annotation[key]).toBeUndefined();
+    }
+    await act(async () => {});
+  });
+
+  it('ignores clicks and lets Escape cancel a drag without exiting normal feedback mode', () => {
+    const { alpha, onHostClick } = fixture();
+    activate(); point(alpha);
+    fireEvent.click(toggle());
+    fireEvent.mouseDown(alpha, { clientX: 15, clientY: 15 });
+    fireEvent.mouseUp(alpha, { clientX: 15, clientY: 15 });
+    fireEvent.click(alpha, { clientX: 15, clientY: 15 });
+    expect(popup()).toBeNull();
+    expect(onHostClick).not.toHaveBeenCalled();
+    fireEvent.mouseDown(alpha, { clientX: 10, clientY: 10 });
+    fireEvent.mouseMove(alpha, { clientX: 40, clientY: 25 });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.mouseUp(alpha, { clientX: 40, clientY: 25 });
+    fireEvent.click(alpha, { clientX: 40, clientY: 25 });
+    expect(popup()).toBeNull();
+    expect(toggle().getAttribute('aria-pressed')).toBe('false');
+    fireEvent.mouseDown(alpha, { clientX: 15, clientY: 15 });
+    fireEvent.click(alpha, { clientX: 15, clientY: 15 });
+    expect(popup()?.textContent).toContain('Alpha');
+  });
+
+  it('resets when entering Layout mode or closing the feedback toolbar', () => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    fixture(); activate();
+    fireEvent.click(toggle());
+    fireEvent.keyDown(document, { key: 'L' });
+    expect(toggle().getAttribute('aria-pressed')).toBe('false');
+    expect((toggle() as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(toggle());
+    fireEvent.click(within(root()).getByRole('button', { name: 'Exit', exact: true }));
+    activate();
+    expect(toggle().getAttribute('aria-pressed')).toBe('false');
+  });
 });
 
 describe('combined selection', () => {

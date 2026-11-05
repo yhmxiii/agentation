@@ -196,7 +196,7 @@
 }
 
 .toolbar {
-  width: 337px;
+  width: 377px;
   font-family:
     system-ui,
     -apple-system,
@@ -269,10 +269,10 @@
     border-radius: 22px;
     // 34px controls inside a 44px pill: keep the end controls concentric.
     padding: 5px;
-    width: 297px;
+    width: 337px;
 
     &.serverConnected {
-      width: 337px;
+      width: 377px;
     }
   }
 }

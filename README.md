@@ -51,7 +51,8 @@ See the [setup guide](https://agentation.com/install#agent-integration).
 - **Click to annotate** – Click any element with automatic selector identification
 - **Text selection** – Select text to annotate specific content
 - **Multi-select** – Hold Cmd/Ctrl to select elements individually, or drag to select multiple at once
-- **Area selection** – Drag to annotate any region, even empty space
+- **Area selection** - In normal feedback mode, a drag can annotate empty space when no elements are selected
+- **Rectangle mode** - Toggle the dashed rectangle in the toolbar, then drag to annotate exactly that area without selecting elements inside it. Use the regular comment popup to add feedback. Toggle it off or press Esc to return to element selection.
 - **Animation pause** – Pause supported CSS animations, Web Animations, and videos to capture specific states
 - **Structured output** – Copy markdown with selectors, positions, and context
 - **Embedded pages** – Select elements in open shadow roots and same-origin iframes

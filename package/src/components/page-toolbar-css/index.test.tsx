@@ -539,8 +539,8 @@ describe("toolbar viewport bounds", () => {
     document.elementFromPoint = () => null;
     const wrapper = toolbarRoot().querySelector<HTMLElement>("[data-agentation-toolbar]")!;
     vi.spyOn(wrapper, "getBoundingClientRect").mockReturnValue({
-      x: 100, y: 120, left: 100, top: 120, right: 437, bottom: 164,
-      width: 337, height: 44, toJSON: () => ({}),
+      x: 100, y: 120, left: 100, top: 120, right: 477, bottom: 164,
+      width: 377, height: 44, toJSON: () => ({}),
     });
     fireEvent.mouseDown(wrapper.firstElementChild!, {
       button: 0, clientX: 420, clientY: 130, composed: true,
@@ -552,19 +552,19 @@ describe("toolbar viewport bounds", () => {
   });
 
   it.each([
-    { label: "standard controls", props: {}, settings: {}, surfaceWidth: 297 },
-    { label: "callback Send", props: { onSubmit: vi.fn() }, settings: {}, surfaceWidth: 337 },
-    { label: "manual webhook Send", props: { webhookUrl: "https://example.test/hook" }, settings: { webhooksEnabled: false }, surfaceWidth: 337 },
-    { label: "automatic webhook", props: { webhookUrl: "https://example.test/hook" }, settings: {}, surfaceWidth: 297 },
+    { label: "standard controls", props: {}, settings: {}, surfaceWidth: 337 },
+    { label: "callback Send", props: { onSubmit: vi.fn() }, settings: {}, surfaceWidth: 377 },
+    { label: "manual webhook Send", props: { webhookUrl: "https://example.test/hook" }, settings: { webhooksEnabled: false }, surfaceWidth: 377 },
+    { label: "automatic webhook", props: { webhookUrl: "https://example.test/hook" }, settings: {}, surfaceWidth: 337 },
   ])("keeps $label visible after expanding at the left edge and dragging", ({ props, settings, surfaceWidth }) => {
     // The right-aligned 44px launcher is 20px from the left viewport edge.
-    localStorage.setItem("feedback-toolbar-position", JSON.stringify({ x: -273, y: 120 }));
+    localStorage.setItem("feedback-toolbar-position", JSON.stringify({ x: -313, y: 120 }));
     localStorage.setItem("feedback-toolbar-settings", JSON.stringify(settings));
     render(<PageFeedbackToolbarCSS {...props} />);
     document.elementFromPoint = () => null;
     const wrapper = toolbarRoot().querySelector<HTMLElement>("[data-agentation-toolbar]")!;
     const surface = wrapper.firstElementChild!;
-    const visibleLeft = () => Number.parseFloat(wrapper.style.left) + 337 - surfaceWidth;
+    const visibleLeft = () => Number.parseFloat(wrapper.style.left) + 377 - surfaceWidth;
 
     fireEvent.keyDown(document, { key: "f", ctrlKey: true, shiftKey: true });
     expect(visibleLeft()).toBe(20);
@@ -577,11 +577,11 @@ describe("toolbar viewport bounds", () => {
     fireEvent.mouseDown(surface, { button: 0, clientX: 30, clientY: 130, composed: true });
     fireEvent.mouseMove(document.body, { buttons: 1, clientX: 3000, clientY: 130 });
     fireEvent.mouseUp(document.body);
-    expect(Number.parseFloat(wrapper.style.left) + 337).toBe(window.innerWidth - 20);
+    expect(Number.parseFloat(wrapper.style.left) + 377).toBe(window.innerWidth - 20);
   });
 
   it("rechecks the boundary when a Send destination is added while open", () => {
-    localStorage.setItem("feedback-toolbar-position", JSON.stringify({ x: -273, y: 120 }));
+    localStorage.setItem("feedback-toolbar-position", JSON.stringify({ x: -313, y: 120 }));
     const view = render(<PageFeedbackToolbarCSS />);
     fireEvent.keyDown(document, { key: "f", ctrlKey: true, shiftKey: true });
     view.rerender(<PageFeedbackToolbarCSS onSubmit={vi.fn()} />);
