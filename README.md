@@ -12,6 +12,15 @@
 
 ## Install
 
+### This fork's optional review extension
+
+The [`review-workbench` branch](https://github.com/yhmxiii/agentation/tree/review-workbench)
+adds a reusable Comments list, Delete/Applied states, keyboard shortcuts and
+optional text-editing/Drawesome connections with a runnable English demo.
+See [the extension setup guide](extensions/review-workbench/README.md).
+It is not included in `npm install agentation`; the original package API and
+license are unchanged. No private portfolio content or owner write API is bundled.
+
 ```bash
 npm install agentation -D
 ```
